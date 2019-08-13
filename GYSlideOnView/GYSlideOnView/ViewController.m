@@ -2,7 +2,7 @@
 //  ViewController.m
 //  GYSlideOnView
 //
-//  Created by qiugaoying on 2019/2/18.
+//  Updated by qiugaoying on 2019/08/13.
 //  Copyright © 2019年 qiugaoying. All rights reserved.
 //
 
@@ -14,18 +14,29 @@
 #define LStatusBarHeight                [[UIApplication sharedApplication] statusBarFrame].size.height
 #define LNavBarHeight                   44.0
 
+typedef enum : NSInteger {
+    PointDirectTop,
+    PointDirectLevel,
+    PointDirectBottom,
+} PointDirect;
+
+typedef enum : NSInteger {
+    SlideDirectBottomToTop,
+    SlideDirectTopToBottom,
+} SlideDirect;
+
+
 @interface ViewController ()<UITableViewDelegate, UITableViewDataSource,UIGestureRecognizerDelegate>
 {
     CGPoint startSpanPoint;
-    
-    NSInteger pointB1_Y;//记录上一次拖动的 0 默认值 1 往上， -1往下；
-    BOOL blChange ; //NO 默认一个方向 ，YES 为改变过方向：来回拖动的情况；
-    BOOL bBottom_Top_Flag;
+    PointDirect pointDirect;
+    SlideDirect slideDirect;
+    BOOL directHasChange ;
+    CGFloat panViewMaxY;
+    CGFloat panViewMinY;
 }
 
-@property(nonatomic,assign) CGFloat listViewMinTop;
 @property(nonatomic,strong) UITableView *tableView;
-@property(nonatomic,assign) CGFloat mapViewHeight;
 @property(nonatomic,strong) NSMutableArray *datas;
 @property(nonatomic,strong) GYShadeView *styleView;
 
@@ -38,10 +49,10 @@
     // Do any additional setup after loading the view, typically from a nib.
     self.title = @"GYSlideOnView";
     _datas = [[NSMutableArray alloc]init];
-    
-    //高度配置；
-    self.mapViewHeight = self.view.frame.size.height * 0.65;
-    self.listViewMinTop = 95;
+    pointDirect = PointDirectLevel;
+    slideDirect = SlideDirectTopToBottom;
+    panViewMaxY = self.view.frame.size.height * 0.65;
+    panViewMinY = 95;
   
     //遮罩
     self.styleView = [[GYShadeView alloc] initWithFrame:self.view.bounds];
@@ -73,11 +84,6 @@
     }
     cell.textLabel.text = [NSString stringWithFormat:@"第%ld行数据",indexPath.row+1];
     return cell;
-}
-
--(CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
-{
-    return 44;
 }
 
 -(NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
@@ -115,7 +121,7 @@
     _tableView.estimatedRowHeight           = 0;
     _tableView.estimatedSectionHeaderHeight = 0;
     _tableView.estimatedSectionFooterHeight = 0;
-    _tableView.backgroundColor              = [UIColor clearColor];
+    _tableView.backgroundColor              = [UIColor whiteColor];
     _tableView.scrollsToTop                 = YES;
     _tableView.separatorColor               = [UIColor lightGrayColor];
     _tableView.tableFooterView              = [[UIView alloc] init];
@@ -124,17 +130,16 @@
     _tableView.separatorInset = UIEdgeInsetsMake(0, 0, 0, 0);
     _tableView.rowHeight = 44;
     [self.view addSubview:_tableView];
-    
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
     self.tableView.layer.cornerRadius = 5;
     self.tableView.layer.masksToBounds = YES;
     [self.tableView mas_makeConstraints:^(MASConstraintMaker *make) {
-        make.top.mas_equalTo(self.mapViewHeight);
+        make.top.mas_equalTo(self->panViewMaxY);
         make.left.mas_equalTo(7);
         make.right.mas_equalTo(-7); //考虑到手势会触摸在屏幕
-        make.height.equalTo(@(SCREEN_H-self.listViewMinTop-(LStatusBarHeight+44)));
+    make.height.equalTo(@(SCREEN_H-self->panViewMinY-(LStatusBarHeight+44)));
     }];
-    self.tableView.tag = 1000;
+ 
 }
 
 #pragma mark - 允许多手势响应
@@ -149,146 +154,137 @@
             return NO; //阻止多事件
         }
     }
-    
-    return YES; //点击的点的坐标,找到最附近的点；之后再将用户包含附近点的名字的 移动到第一项目；
+    return YES;
 }
 
 #pragma mark - PanGesture
 - (void)panScroll:(UIGestureRecognizer*)gestureRecognizer{
     
-//    UIView *filterView = [self.view viewWithTag:8888];
-//    if(filterView){
-//        return ;
-//    }
-    
-    if(gestureRecognizer.state == UIGestureRecognizerStateBegan){
-        
-        startSpanPoint = [gestureRecognizer locationInView:self.view]; //取到开始位置的坐标，；
-        
-        if(self.tableView.frame.origin.y == self.listViewMinTop){
-            bBottom_Top_Flag = NO; //记录初始事件，mapView的状态；由上拉到下；
-            if(self.tableView.contentOffset.y<0){
-                self.tableView.scrollEnabled = NO;
-            }else{
-                self.tableView.scrollEnabled = YES;
-            }
-        }else{
-            bBottom_Top_Flag = YES; //记录初始事件，mapView的状态；由下推到上；
-            self.tableView.scrollEnabled = NO;
-        }
-        
-        
-    }else if(gestureRecognizer.state == UIGestureRecognizerStateEnded){
-        
-        if(pointB1_Y == 1){
-            //往上推，没有推到顶部时候，手势结束时候 自动推到顶部；
-            NSLog(@"往上推结束时候，到顶部了；");
-            [UIView animateWithDuration:0.2 animations:^{
+    switch (gestureRecognizer.state) {
+        case UIGestureRecognizerStateBegan:
+            {
+                startSpanPoint = [gestureRecognizer locationInView:self.view];
                 
-                CGRect tableViewFrame = self.tableView.frame;
-                tableViewFrame.origin.y = self.listViewMinTop;
-                self.tableView.frame = tableViewFrame;
-                self.styleView.alpha = 1;
-                
-            } completion:^(BOOL finished) {
-                self.tableView.scrollEnabled = YES;
-            }];
-            
-        }else{
-            
-            if(self.tableView.contentOffset.y<=0 && self.tableView.frame.origin.y < self.mapViewHeight){
-                //往下滑动,只有，排除表格已滚动状态；
-                NSLog(@"往下拉结束时候，到底了；");
-                [UIView animateWithDuration:0.2 animations:^{
-                    
-                    CGRect tableViewFrame = self.tableView.frame;
-                    tableViewFrame.origin.y = self.mapViewHeight;
-                    self.tableView.frame = tableViewFrame;
-                    self.styleView.alpha = 0;
-                    
-                } completion:^(BOOL finished) {
-                    self.tableView.scrollEnabled = NO;
-                }];
-            }
-        }
-        
-        pointB1_Y = 0; //重置方向
-        blChange = NO; //重置状态是一直一个方向；
-        
-    }else{
-        CGPoint point = [gestureRecognizer locationInView:self.view];
-        
-        CGFloat topDistance = startSpanPoint.y - point.y;
-        if(topDistance >0){ //>100 就是向上滑，但是要控制滑动的距离限制；
-            
-            if(pointB1_Y == -1){
-                blChange = YES; //记录从往下变成往上；
-            }else if(pointB1_Y == 0){
-                blChange = NO; //方向没有变更；
-            }
-            
-            pointB1_Y = 1; //记录当前是往上推；
-            
-            //往上推；
-            if(self.tableView.frame.origin.y == self.listViewMinTop){
-                self.tableView.scrollEnabled = YES;
-            }else{
-                
-                if(self.datas.count > 0){ //无数据时候 不给往上推
-                    
-                    //方式一： 向上；上剩多少留多少 ;
-                    if(bBottom_Top_Flag == NO){
-                        if(!blChange && self.mapViewHeight - topDistance >= self.listViewMinTop){
-                            
-                            CGRect tableViewFrame = self.tableView.frame;
-                            tableViewFrame.origin.y = self.mapViewHeight - topDistance;
-                            self.tableView.frame = tableViewFrame;
-                        }
+                if(self.tableView.frame.origin.y == panViewMinY){
+                    slideDirect = SlideDirectTopToBottom;
+                    if(self.tableView.contentOffset.y<0){
+                        self.tableView.scrollEnabled = NO;
                     }else{
-                        if(self.mapViewHeight - topDistance >= self.listViewMinTop){
-                            
-                            CGRect tableViewFrame = self.tableView.frame;
-                            tableViewFrame.origin.y = self.mapViewHeight - topDistance;
-                            self.tableView.frame = tableViewFrame;
-                        }
-                    }
-                }
-            }
-            
-        }else if(topDistance<0){
-            
-            if(pointB1_Y == 1){
-                blChange = YES; //记录从往上变成往下；
-            }else if(pointB1_Y == 0){
-                blChange = NO; //方向没有变更；
-            }
-            pointB1_Y = -1; //记录当前是往下拉；
-            
-            if(self.tableView.contentOffset.y<=0 && self.tableView.frame.origin.y < self.mapViewHeight){ //并且是在顶部小于0时候
-                
-                self.tableView.contentOffset = CGPointMake(0, 0); //可写可不写；
-                self.tableView.scrollEnabled = NO;
-                
-                if(bBottom_Top_Flag == YES){
-                    if(!blChange && self.listViewMinTop - topDistance <= self.mapViewHeight){
-                        
-                        CGRect tableViewFrame = self.tableView.frame;
-                        tableViewFrame.origin.y = self.listViewMinTop - topDistance;
-                        self.tableView.frame = tableViewFrame;
+                        self.tableView.scrollEnabled = YES;
                     }
                 }else{
-                    if(self.listViewMinTop - topDistance <= self.mapViewHeight){
-                        
-                        CGRect tableViewFrame = self.tableView.frame;
-                        tableViewFrame.origin.y = self.listViewMinTop - topDistance;
-                        self.tableView.frame = tableViewFrame;
-                    }
+                    slideDirect = SlideDirectBottomToTop;
+                    self.tableView.scrollEnabled = NO;
                 }
             }
+            break;
+            
+        case UIGestureRecognizerStateEnded:
+        {
+            if(pointDirect == PointDirectTop){
+                
+                [UIView animateWithDuration:0.25 animations:^{
+                    
+                    CGRect tableViewFrame = self.tableView.frame;
+                    tableViewFrame.origin.y = self->panViewMinY;
+                    self.tableView.frame = tableViewFrame;
+                    self.styleView.alpha = 1;
+                    
+                } completion:^(BOOL finished) {
+                    self.tableView.scrollEnabled = YES;
+                }];
+                
+            }else{
+                
+                if(self.tableView.contentOffset.y<=0 && self.tableView.frame.origin.y < panViewMaxY){
+                    
+                    [UIView animateWithDuration:0.25 animations:^{
+                        CGRect tableViewFrame = self.tableView.frame;
+                        tableViewFrame.origin.y = self->panViewMaxY;
+                        self.tableView.frame = tableViewFrame;
+                        self.styleView.alpha = 0;
+                    } completion:^(BOOL finished) {
+                        self.tableView.scrollEnabled = NO;
+                    }];
+                }
+            }
+            
+            pointDirect = PointDirectLevel;
+            directHasChange = NO;
+        }
+            break;
+        case UIGestureRecognizerStateChanged:
+        {
+            CGPoint point = [gestureRecognizer locationInView:self.view];
+            CGFloat distance = startSpanPoint.y - point.y;
+            [self panGesChange:distance];
+        }
+            break;
+        default:
+            break;
+    }
+   
+}
+
+
+-(void)panGesChange:(CGFloat)distance
+{
+    if(distance >0){
+        
+        if(pointDirect == PointDirectBottom){
+            directHasChange = YES;
+        }else if(pointDirect == PointDirectLevel){
+            directHasChange = NO;
+        }
+        pointDirect = PointDirectTop;
+    
+        if(self.tableView.frame.origin.y == panViewMinY){
+            self.tableView.scrollEnabled = YES;
+        }else{
+            
+            CGRect tableViewFrame = self.tableView.frame;
+            CGFloat directTopY =  panViewMaxY - distance;
+            if (directTopY >= panViewMinY) {
+                if(slideDirect == SlideDirectBottomToTop){
+                    tableViewFrame.origin.y = directTopY;
+                }else {
+                    if(!directHasChange){
+                        tableViewFrame.origin.y = directTopY;
+                    }
+                }
+                 self.tableView.frame = tableViewFrame;
+            }
+        }
+        
+    }else if(distance<0){
+        
+        if(pointDirect == PointDirectTop){
+            directHasChange = YES;
+        }else if(pointDirect == PointDirectLevel){
+            directHasChange = NO;
+        }
+        pointDirect = PointDirectBottom;
+        
+        if(self.tableView.contentOffset.y<=0 && self.tableView.frame.origin.y < panViewMaxY){
+            
+            self.tableView.contentOffset = CGPointMake(0, 0);
+            self.tableView.scrollEnabled = NO;
+            CGRect tableViewFrame = self.tableView.frame;
+            
+            CGFloat directBottomY = panViewMinY - distance ;
+            if (directBottomY <= panViewMaxY){
+                  if(slideDirect == SlideDirectBottomToTop){
+                      if(!directHasChange){
+                          tableViewFrame.origin.y = directBottomY;
+                      }
+                  }else{
+                       tableViewFrame.origin.y = directBottomY;
+                  }
+            }
+            self.tableView.frame = tableViewFrame;
         }
     }
 }
-
 
 
 @end
